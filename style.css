@@ -8,6 +8,7 @@ html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background:
 header { z-index: 3; position: fixed; top: 0; left: 0; right: 0; height: 42px; display: flex; align-items: center; gap: 8px; padding: 0 12px; background: linear-gradient(#101218df, #10121888, transparent); pointer-events: none; text-shadow: 0 1px 2px #000; }
 header strong { font-size: 17px; letter-spacing: -.3px; }
 header span { font-size: 11px; color: #ccd0d8; }
-.hint { z-index: 3; position: fixed; right: 14px; bottom: 13px; font-size: 11px; color: #ffffffaa; pointer-events: none; text-shadow: 0 1px 3px #000; }
+.hint { z-index: 3; position: fixed; right: 14px; bottom: 13px; font-size: clamp(8px, 1vw, 11px); font-style: italic; white-space: nowrap; color: #ffffffbb; pointer-events: none; text-align: right; text-shadow: 0 1px 3px #000; }
 #pause { z-index: 3; position: fixed; left: 12px; bottom: 10px; width: 34px; height: 30px; border: 1px solid #ffffff30; border-radius: 8px; color: #fff; background: #08090ca8; backdrop-filter: blur(8px); cursor: pointer; }
 #pause:hover { background: #ffffff20; }
+@media (max-width: 480px) { .hint { bottom: 49px; } }
