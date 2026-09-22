@@ -14,6 +14,7 @@ uniform vec3 iResolution;
 uniform float iTime;
 uniform vec2 uView;
 uniform float uZoom;
+uniform float uPick;
 
 #define MS 100
 #define MT 7.
@@ -84,6 +85,49 @@ vec3 donutColor(float seed, vec3 localPos) {
   w = w*w;
   w /= max(w.x+w.y+w.z, .001);
   return c0*w.x + c1*w.y + c2*w.z;
+}
+
+float specialDonut(vec3 id) {
+  // At most three cells per time window, always on the left or right of the tunnel.
+  float window = 7.;
+  float slot = floor(iTime/window);
+  float phase = fract(iTime/window);
+  float fade = smoothstep(0., .16, phase) * (1.-smoothstep(.78, 1., phase));
+  float baseZ = floor(slot*window*.3);
+  float sideA = N13(slot+11.).x < .5 ? -1. : 1.;
+  float sideB = -sideA;
+  float sideC = N13(slot+29.).y < .5 ? -1. : 1.;
+  float yA = 0.;
+  float yB = 0.;
+  float yC = floor(N13(slot+17.).x*3.)-1.;
+  float a = 1.-step(.5, length(id-vec3(sideA,yA,baseZ+2.)));
+  float b = 1.-step(.5, length(id-vec3(sideB,yB,baseZ+3.)));
+  float c = 1.-step(.5, length(id-vec3(sideC,yC,baseZ+4.)));
+  c *= step(.40,N13(slot+47.).z);
+  return max(a,max(b,c))*fade;
+}
+
+vec3 specialColor(vec3 id, vec3 localPos) {
+  float seed = N13(dot(id,vec3(1.,31.,117.))).x;
+  vec3 a, b, c;
+  if(seed < .34) {
+    a=vec3(.635,.996,.839); // mint
+    b=vec3(.478,.996,.945); // aqua
+    c=vec3(.655,.769,1.); // periwinkle
+  } else if(seed < .68) {
+    a=vec3(.596,.529,.706); // mauve
+    b=vec3(.573,.722,.635); // sage
+    c=vec3(.980,.502,.627); // pink
+  } else {
+    a=vec3(.937,.827,.816); // blush
+    b=vec3(1.,.545,.408); // peach
+    c=vec3(.984,.698,.259); // amber
+  }
+  float angle = atan(localPos.z,localPos.x)+localPos.y*3.2+seed*6.28318;
+  vec3 w=.5+.5*cos(angle-vec3(0.,2.094395,4.188790));
+  w=w*w;
+  w/=max(w.x+w.y+w.z,.001);
+  return a*w.x+b*w.y+c*w.z;
 }
 
 vec4 GetDist(vec3 p) {
@@ -241,12 +285,22 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord) {
   vec3 light = vec3(0., 6, 0.);
   vec4 r = Ray(ro, rd);
   vec3 p = ro+rd*r.x;
+  vec3 id = floor(p);
+  float special = r.y == -1. ? 0. : specialDonut(id);
+  if(uPick > .5) {
+    fragColor = vec4(vec3(step(.45,special)),1.);
+    return;
+  }
   if(r.y != -1.) {
     vec3 n = Normals(p);
     vec3 ld = normalize(light-p);
     float l = clamp(dot(n,ld)*.36+.82, 0., 1.08);
     float rim = pow(1.-max(dot(n,-rd),0.), 2.2);
-    col = r.yzw*l*1.10;
+    vec3 localPos = fract(p-(cos(p*10.+iTime)*.04)*(cos(p*20.+iTime)*.6))-.5;
+    float spin = id.x == 0. ? 0. : 1.;
+    localPos.yz *= Rot(iTime*N31(id)*spin+30.);
+    vec3 surfaceColor = mix(r.yzw,specialColor(id,localPos),special);
+    col = surfaceColor*l*1.10;
     col += mix(vec3(.20,.28,.72),vec3(.90,.50,.72),r.z)*rim*.16;
     // Blend silhouettes into the surrounding color for a soft, hazy contour.
     col = mix(col, bg, rim*.24);
@@ -280,10 +334,10 @@ const resolution = gl.getUniformLocation(program, 'iResolution');
 const time = gl.getUniformLocation(program, 'iTime');
 const viewUniform = gl.getUniformLocation(program, 'uView');
 const zoomUniform = gl.getUniformLocation(program, 'uZoom');
+const pickUniform = gl.getUniformLocation(program, 'uPick');
 
 let paused = false, elapsed = 0, previous = performance.now();
-const speeds = [1, 1.5, 2];
-let speedStep = 0;
+let speed = 1;
 const view = { yaw: 0, pitch: 0, zoom: 1 };
 globalThis.viewAngles = view;
 let drag = null;
@@ -312,13 +366,26 @@ canvas.addEventListener('pointermove', event => {
 });
 canvas.addEventListener('pointerup', event => {
   if (!drag || event.pointerId !== drag.id) return;
-  if (!drag.moved) {
-    speedStep = (speedStep + 1) % speeds.length;
-    document.querySelector('#speed').textContent = `${speeds[speedStep]}×`;
+  if (!drag.moved && speed < 10 && pickSpecialDonut(event.clientX,event.clientY)) {
+    speed += 1;
+    document.querySelector('#speed').textContent = `${speed}×`;
   }
   drag = null;
 });
 canvas.addEventListener('pointercancel', () => { drag = null; });
+function pickSpecialDonut(clientX,clientY) {
+  const rect = canvas.getBoundingClientRect();
+  const x = Math.floor((clientX-rect.left)*canvas.width/rect.width);
+  const y = Math.floor((rect.bottom-clientY)*canvas.height/rect.height);
+  if(x<0 || y<0 || x>=canvas.width || y>=canvas.height) return false;
+  gl.uniform1f(pickUniform,1);
+  gl.drawArrays(gl.TRIANGLES,0,3);
+  const pixel = new Uint8Array(4);
+  gl.readPixels(x,y,1,1,gl.RGBA,gl.UNSIGNED_BYTE,pixel);
+  gl.uniform1f(pickUniform,0);
+  gl.drawArrays(gl.TRIANGLES,0,3);
+  return pixel[0] > 127;
+}
 function resize() {
   const ratio = Math.min(devicePixelRatio, 1.5);
   const width = Math.round(innerWidth*ratio), height = Math.round(innerHeight*ratio);
@@ -328,7 +395,7 @@ function resize() {
 }
 function render(now) {
   resize();
-  if(!paused) elapsed += (now-previous)/1000 * speeds[speedStep];
+  if(!paused) elapsed += (now-previous)/1000 * speed;
   previous=now;
   globalThis.shaderTime=elapsed;
   gl.uniform3f(resolution,canvas.width,canvas.height,1);
